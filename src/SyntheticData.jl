@@ -1,6 +1,5 @@
 module SyntheticData
 import ADerrors
-
 import LinearAlgebra
 
 
