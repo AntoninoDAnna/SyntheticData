@@ -1,0 +1,9 @@
+name = "SyntheticData"
+uuid = "f46fe68f-9e63-4b46-8aa3-ae781f101a4f"
+authors = ["Antonino DAnna <antonino.danna@estudiante.uam.es>"]
+version = "0.1.0"
+
+[deps]
+ADerrors = "5e92007d-7bf1-471c-8ceb-4591b8b567a9"
+BDIO = "375f315e-f2c4-11e9-2ef9-134f02f79e27"
+LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
