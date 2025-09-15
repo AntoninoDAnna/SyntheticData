@@ -181,11 +181,12 @@ function gen_cov_series(μ::Vector{Float64}, cov::Matrix{Float64}, τ::Vector{Fl
 
   res = zeros(np, N)
   for i in 1:np
-    gen_series!(res[i,:],τ,λ,sigma=1.0,N=N)
-
+      gen_series!(view(res,i,1:N),τ,λ,sigma=1.0,N=N)
+      res[i,:].+= y[i]
   end
+
   for t in 1:N
-    res[:,t] = U*res[:,t];
+      res[:,t] = U*res[:,t];
   end
 
   return res;
