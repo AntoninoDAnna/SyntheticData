@@ -8,45 +8,40 @@ It generates `N` random number normally distributed around `μ` with standard de
 It returns mean and variance of the random numbers.
 If `data` is set to `true`, it return also the random numbers
 """
-function rn_gen(μ::T,σ::T;N::Int64=1000, data::Bool=false) where T<:Real
-  aux = randn(N).* σ .+μ;
-  mean =  sum(aux)/N;
-  var = sum((aux.-mean).^2)/(N-1);
-  return data ? (mean,var,aux) : (mean,var)
+function rn_gen(mu::T,sigma::T;N=1000, data=false) where T
+    aux = randn(T,N)
+    for i in eachindex(aux)
+        aux[i] = aux[i]*sigma+mu;
+    end
+    mean =  sum(aux)/N;
+    var = sum((aux[i]-mean)^2 for i in eachindex(aux))/(N-1);
+    return data ? (mean,var,aux) : (mean,var)
 end
 
 @doc raw"""
-    corr_data_gen(μ::Vector,cov::Matrix;id::String;N::Int64=1000,σ = 1.0)
+    corr_data_gen(mu::AbstractVector, cov::AbstractMatrix;N::Int=1000, data=false)
 
-generates correlated data using a multivariate distribution with true mean value `μ` and true covariance matrix `cov`.
+generates correlated data using a multivariate distribution with true mean value `mu` and true covariance matrix `cov`.
 
 It return the mean and covariance matrix of the generated data. if `data` is set to `true`, it return also the generated data
 """
-function cov_data_gen(mu, cov::Matrix; data=false, N::Int64=1000)
+function cov_data_gen(mu, cov::Matrix; data=false, N::Int=1000)
     if size(cov,1)!=length(mu)
         error("dimension mismatch: the correlation matrix and the true_value vector have different dimensions")
     end
-    L = LinearAlgebra.cholesky(cov).L;
-    # Linv = LinearAlgebra.pinv(L);
 
-    aux = zeros(length(mu),N)
-    # means = similar(mu)
-    # var = similar(mu)
-    for j in 1:N, i in eachindex(mu),j in 1:N
-        aux[i,j] = randn()
-    end
-    for j in 1:N
-        aux[:,j] .= L*aux[:,j]
-    end
-    for i in eachindex(mu)
-        aux[i,:] .+= mu[i]
+    L = LinearAlgebra.cholesky(cov).L;
+    aux = randn(length(mu),N)
+    temp = similar(mu)
+
+    for j in axes(aux,2)
+        LinearAlgebra.mul!(temp,L,view(aux,:,j))
+        aux[:,j] .= temp .+mu
     end
     mean = sum(aux,dims=2)./N
-
     C= zeros(length(mu),length(mu))
-
     for i in eachindex(mu), j in eachindex(mu)
-        C[i,j]=sum((aux[i,t]-mean[i])*(aux[j,t]-mean[j]) for t in 1:N)/(N-1)
+         C[i,j]=sum((aux[i,t]-mean[i])*(aux[j,t]-mean[j]) for t in 1:N)/(N-1)
     end
 
     return data ? (mean,C,aux) : (mean,C)
@@ -60,22 +55,20 @@ it generates a random walk around `mean`.
 
 """
 function random_walk(mean::Float64; sigma::Float64=1.0, N::Int64=1000)
-  x = zeros(N);
-  eps = randn(N).*sigma;
-  x[1] = mean + eps[1]
-  for i in 2:N
-    x[i] = x[i-1] + eps[i]
-    if abs(x[i] - mean) > sigma
-      x[i] = x[i-1]
+    x = zeros(N);
+    x[1] = mean + randn()*sigma
+    for i in 2:N
+        x[i] = x[i-1] + randn()*sigma
+        if abs(x[i] - mean) > sigma
+            x[i] = x[i-1]
+        end
     end
-  end
-  return x
+    return x
 end
 
 function random_walk(mean::Vector{Float64}; sigma::Union{Vector{Float64}, Float64}=1.0, kwargs...)
   return length(sigma) == 1 ? random_walk.(mean, sigma=sigma; kwargs...) : [random_walk(mean[i], sigma=sigma[i]; kwargs...) for i =eachindex(mean)];
 end
-
 
 @doc raw"""
     gen_series!(dt::T where T<:AbstractVector{Float64},τ::Float;N::Int64=10000, sigma::Float64=1.0)
@@ -89,66 +82,50 @@ Generate a Markov Chain of autocorrelated data usign the autocorrelation functio
 """
 function gen_series!(dt::T where T<:AbstractVector, τ; N = 1000,sigma=1.0)
     ap = τ == 0.0 ? 0.0 : exp(-1.0/τ)
-    η = randn(N).*sigma;
+    η= randn(N);
     dt[1] = η[1];
     for i in 2:N
-        dt[i] = sqrt(1-ap^2)*η[i]+ap*dt[i-1]
+        dt[i] = sqrt(1-ap^2)*η[i]*sigma+ap*dt[i-1]
     end
 end
 
 @doc raw"""
-    gen_series(μ::Float64,τ::Float64;N::Int64=1000)
+    gen_series(μ,τ;N::Int=1000)
+    gen_series(μ,τ::AbstractVector,λ::AbstractVector;N::Int=1000)
 
-    gen_series(μ::Float64, τ::Vector{Float64},λ::Vector{Float64};N::Int64=1000,info::Bool=false)
+Based on the homonymous Fortran90 routine written by Alberto Ramos. See https://ific.uv.es/~alramos/software/aderrors/
 
-based on the homonymous Fortran90 routine written by Alberto Ramos. See https://ific.uv.es/~alramos/software/aderrors/
-
-generate a Markov Chain of autocorrelated data usign the autocorrelation function `Γ(t) = e^{-t/τ}` or `Γ(t) = ∑_{k} λ_k e^{-t/τ_k}` and mean value `μ`
+It generate a Markov Chain of autocorrelated data using the autocorrelation function `Γ(t) = e^{-t/τ}` or `Γ(t) = ∑_{k} λ_k e^{-t/τ_k}` and mean value `μ`
 
 `N` is the length of the Markov Chain
-The flag `info`, if set to true, will output `τ_{int}` and the exact error
 `sigma` is the standar deviation of the normally distributed random number that are generated.
 """
-function gen_series(μ, τ; N::Int64=1000,sigma=1.0, info::Bool=false)
-  dt = zeros(N)
-  gen_series!(dt,τ,N=N,sigma=sigma)
-
-  if info
-    taui = real_taui(τ)
-    err = sqrt(2*taui/N);
-    return μ.+dt, taui, err
-  end
-    return μ.+dt;
+function gen_series(mu, τ; N::Int64=1000,sigma=1.0)
+    dt = zeros(N)
+    gen_series!(dt,τ,N=N,sigma=sigma)
+    return dt.+ mu
 end
 
 function gen_series!(dt::AbstractVector,τ::Vector,λ::Vector;N::Int64=1000,sigma=1.0)
-  nu = zeros(N)
-  ap = [t == 0.0 ? 0.0 : exp(-1.0/t) for t in τ]
-  for k in eachindex(τ)
-      η = randn(N)*sigma
-      nu[1] = η[1]
-      dt[1] = λ[k]*nu[1]
-      for i in 2:N
-          nu[i] = sqrt(1-ap[k]^2)*η[i] + ap[k]*nu[i-1]
-          dt[i]+= λ[k]*nu[i]
-      end
-  end
+    nu = zeros(N)
+    for k in eachindex(τ)
+        ap = τ[k] == 0.0 ? 0.0 : exp(-1.0/τ[k])
+        η = randn(N)
+        nu[1] = η[1]*sigma
+        dt[1] = λ[k]*nu[1]
+        for i in 2:N
+            nu[i] = sqrt(1-ap[k]^2)*η[i]*sigma + ap[k]*nu[i-1]
+            dt[i]+= λ[k]*nu[i]
+        end
+    end
 end
 
-function gen_series(μ,τ::Vector,λ::Vector;sigma::Float64=1.0, N::Int64=1000, info::Bool=false)
+function gen_series(μ,τ::Vector,λ::Vector;sigma::Float64=1.0, N::Int64=1000)
     dt =zeros(N);
     gen_series!(dt,τ,λ,N=N,sigma=sigma)
-    dt = dt.+μ
-    if info
-        sλ = sum(λ.^2)
-        taui = 0.5 + sum(λ.^2 ./(1 ./ap .- 1))/sλ
-        err = sqrt(sλ/N * 2*taui)
-        return dt, taui,err
-    end
-    return dt
+
+    return dt.+μ
 end
-
-
 
 @doc raw"""
     gen_cov_series(μ:Vector{Float64}, cov::Matrix{Float64},τ::Vector{Float64},λ::Vector{Float64};N::Int64=1000)
@@ -159,17 +136,16 @@ The covariance matrix computed with generated data and ignoring the autocorrelat
 """
 function gen_cov_series(μ::Vector, cov::Matrix, τ, λ; N::Int64=1000)
     np = length(μ)
-    res = zeros(np,N); #mc history of each point
+    res = zeros(np,N);
     L = LinearAlgebra.cholesky(cov).L;
-    res = zeros(np, N)
+    temp = similar(μ)
+
     for i in 1:np
         gen_series!(view(res,i,1:N),τ,λ,sigma=1.0,N=N)
     end
-    for t in 1:N
-        res[:,t] .= L*res[:,t];
-    end
-    for i in eachindex(μ)
-        res[i,:].+=μ[i]
+    for j in axes(res,2)
+        LinearAlgebra.mul!(temp,L,view(res,:,j))
+        res[:,j] .= temp .+μ
     end
     return res;
 end
