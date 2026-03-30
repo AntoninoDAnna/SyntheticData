@@ -2,14 +2,12 @@ module SyntheticData
 import LinearAlgebra
 
 @doc raw"""
-    rn_gen(μ::T, σ::T; N::Int64=1000,data::Bool=false) where T<:Real
+    gen_data(mu, sigma; N=1000,data=false)
 
-It generates `N` random number normally distributed around `μ` with standard deviation `σ`
-It returns mean and variance of the random numbers.
-If `data` is set to `true`, it return also the random numbers
+It draws `N` random number from the Normal Distribution \mathcal{N}(x,`mu`, `sigma`^2). It returns the observed mean and variance. If `data` is set to `true`, it returns the drawn data.
 """
-function rn_gen(mu::T,sigma::T;N=1000, data=false) where T
-    aux = randn(T,N)
+function gen_data(mu,sigma;N=1000, data=false)
+    aux = randn(typeof(mu),N)
     for i in eachindex(aux)
         aux[i] = aux[i]*sigma+mu;
     end
@@ -19,19 +17,16 @@ function rn_gen(mu::T,sigma::T;N=1000, data=false) where T
 end
 
 @doc raw"""
-    corr_data_gen(mu::AbstractVector, cov::AbstractMatrix;N::Int=1000, data=false)
+    gen_cov_data(mu, cov;N=1000, data=false)
 
-generates correlated data using a multivariate distribution with true mean value `mu` and true covariance matrix `cov`.
-
-It return the mean and covariance matrix of the generated data. if `data` is set to `true`, it return also the generated data
+ It draws `N` vectors of length `length(mu)` from the  Multivariate Normal Distribution \mathcal{N}(x,`mu`,`cov`). It returns the observed mean and covariance matrix. If `data` is set to `true`, it returns the drawn data.
 """
-function cov_data_gen(mu, cov::Matrix; data=false, N::Int=1000)
+function gen_cov_data(mu, cov; data=false, N::Int=1000)
     if size(cov,1)!=length(mu)
-        error("dimension mismatch: the correlation matrix and the true_value vector have different dimensions")
+        error("Dimension mismatch: the `mu` and `cov` have uncompatible dimensions")
     end
-
     L = LinearAlgebra.cholesky(cov).L;
-    aux = randn(length(mu),N)
+    aux = randn(eltype(mu),length(mu),N)
     temp = similar(mu)
 
     for j in axes(aux,2)
@@ -48,122 +43,143 @@ function cov_data_gen(mu, cov::Matrix; data=false, N::Int=1000)
 end
 
 @doc raw"""
-    random_walk(mean::Float64; sigma::Float64 = 1.0, N::Int64=1000)
-    random_walk(mean::Vector{Float64}; sigma::Union{Vector{Float64}, Float64}=1.0, kwargs...)
+    random_walk(mean; tol = 1.0, N=1000)
 
-it generates a random walk around `mean`.
-
+  It generates a random walk around `mean` with tolerance `tol`. The random numbers are drawn from the Normal Distribution \mathcal{N}(x,`mean`, `tol`^2)$. It returns a vector with the generated data.
 """
-function random_walk(mean::Float64; sigma::Float64=1.0, N::Int64=1000)
+function random_walk(mean; tol=1.0, N=1000)
     x = zeros(N);
-    x[1] = mean + randn()*sigma
+    T = eltype(mean)
+    x[1] = mean + randn(T)*tol
     for i in 2:N
-        x[i] = x[i-1] + randn()*sigma
-        if abs(x[i] - mean) > sigma
+        x[i] = x[i-1] + randn(T)*tol
+        if abs(x[i] - mean) > tol
             x[i] = x[i-1]
         end
     end
     return x
 end
 
-function random_walk(mean::Vector{Float64}; sigma::Union{Vector{Float64}, Float64}=1.0, kwargs...)
-  return length(sigma) == 1 ? random_walk.(mean, sigma=sigma; kwargs...) : [random_walk(mean[i], sigma=sigma[i]; kwargs...) for i =eachindex(mean)];
-end
+__get_lambda(lambda) = k-> lambda
+__get_lambda(lambda::AbstractArray) = k-> lambda[k]
 
 @doc raw"""
-    gen_series!(dt::T where T<:AbstractVector{Float64},τ::Float;N::Int64=10000, sigma::Float64=1.0)
-    gen_series!(dt::T where T<:AbstractVector{Float64},τ::Vector{Float64},λ::Vector{Float64};N::Int64=1000,sigma::Float64=1.0)
+    gen_series!(dt,tau [,lambda]; N=1000, sigma=1.0)
 
-Generate a Markov Chain of autocorrelated data usign the autocorrelation function `Γ(t) = e^{-t/τ}` or `Γ(t) = ∑_{k} λ_k e^{-t/τ_k}` and mean value `0` and *adds* it to `dt`
-
-`N` is the length of the Markov Chain
-`sigma` is the standar deviation of the normally distributed random number that are generated.
-
+ It generates a Monte Carlo series of length `N`, with autocorrelations defined by `tau` and `lambda`. The resulting series is stored in `dt`. If `lambda` is not given, then `lambda` = 1/\sqrt{length(tau)}` is assumed.
 """
-function gen_series!(dt::T where T<:AbstractVector, τ; N = 1000,sigma=1.0)
-    ap = τ == 0.0 ? 0.0 : exp(-1.0/τ)
-    η= randn(N);
-    dt[1] = η[1];
-    for i in 2:N
-        dt[i] = sqrt(1-ap^2)*η[i]*sigma+ap*dt[i-1]
-    end
-end
-
-@doc raw"""
-    gen_series(μ,τ;N::Int=1000)
-    gen_series(μ,τ::AbstractVector,λ::AbstractVector;N::Int=1000)
-
-Based on the homonymous Fortran90 routine written by Alberto Ramos. See https://ific.uv.es/~alramos/software/aderrors/
-
-It generate a Markov Chain of autocorrelated data using the autocorrelation function `Γ(t) = e^{-t/τ}` or `Γ(t) = ∑_{k} λ_k e^{-t/τ_k}` and mean value `μ`
-
-`N` is the length of the Markov Chain
-`sigma` is the standar deviation of the normally distributed random number that are generated.
-"""
-function gen_series(mu, τ; N::Int64=1000,sigma=1.0)
-    dt = zeros(N)
-    gen_series!(dt,τ,N=N,sigma=sigma)
-    return dt.+ mu
-end
-
-function gen_series!(dt::AbstractVector,τ::Vector,λ::Vector;N::Int64=1000,sigma=1.0)
-    nu = zeros(N)
-    for k in eachindex(τ)
-        ap = τ[k] == 0.0 ? 0.0 : exp(-1.0/τ[k])
-        η = randn(N)
-        nu[1] = η[1]*sigma
-        dt[1] = λ[k]*nu[1]
+function gen_series!(dt,tau,lambda;N=1000,sigma=1.0)
+    T = eltype(dt)
+    nu = zeros(T,N)
+    dt .= zero(T)
+    _lambda = __get_lambda(lambda)
+    for k in eachindex(tau)
+        ap = tau[k] == 0.0 ? 0.0 : exp(-1.0/tau[k])
+        nu[1] = randn(T)*sigma
+        dt[1] += _lambda(k)*nu[1]
         for i in 2:N
-            nu[i] = sqrt(1-ap[k]^2)*η[i]*sigma + ap[k]*nu[i-1]
-            dt[i]+= λ[k]*nu[i]
+            nu[i] = sqrt(1-ap^2)*randn(T)*sigma + ap*nu[i-1]
+            dt[i]+= _lambda(k)*nu[i]
         end
     end
 end
 
-function gen_series(μ,τ::Vector,λ::Vector;sigma::Float64=1.0, N::Int64=1000)
+gen_series!(dt, tau; N=1000, sigma=1.0) =
+    gen_series!(dt, tau,
+                fill( one( eltype( tau)) / sqrt( length( tau)), length( tau)),
+                N = N, sigma=sigma)
+
+@doc raw"""
+    gen_series(mu, tau[, lambda]; N=1000, sigma)
+
+It generates a Monte Carlo Series of length `N` with autocorrelations defined by `tau` and `lambda`. If `lambda` is not given, then `lambda = 1/\sqrt{length(tau)}` is assumed. It returns the Monte Carlo series generated
+"""
+function gen_series(mu, tau; N::Int64=1000,sigma=1.0)
+    dt = zeros(N)
+    gen_series!(dt,tau,N=N,sigma=sigma)
+    return dt.+ mu
+end
+
+function gen_series(μ,tau::Vector,λ::Vector;sigma::Float64=1.0, N::Int64=1000)
     dt =zeros(N);
-    gen_series!(dt,τ,λ,N=N,sigma=sigma)
+    gen_series!(dt,tau,λ,N=N,sigma=sigma)
 
     return dt.+μ
 end
 
 @doc raw"""
-    gen_cov_series(μ:Vector{Float64}, cov::Matrix{Float64},τ::Vector{Float64},λ::Vector{Float64};N::Int64=1000)
+    gen_cov_series(mu, cov, tau[, lambda]; N=1000)
 
-It generate a matrix `length(μ) × N` in which each row is the autocorrelated Montecarlo History of the corresponding μ value.
-
-The covariance matrix computed with generated data and ignoring the autocorrelation will tend to `cov` as `N -> ∞`.
+t generates `length(mu)` Monte Carlo series of length `N` with autocorrelations defined by `tau` and `lambda` and covariance defined by `cov`. If `lambda` is not given, then `lambda = 1/\sqrt{length(tau)}` is assumed. It returns the Monte Carlo series generated.
 """
-function gen_cov_series(μ::Vector, cov::Matrix, τ, λ; N::Int64=1000)
-    np = length(μ)
-    res = zeros(np,N);
+function gen_cov_series(mu, cov, tau, lambda; N=1000)
+    T = eltype(mu)
+    np = length(mu)
+    res = zeros(T,np,N);
     L = LinearAlgebra.cholesky(cov).L;
-    temp = similar(μ)
+    temp = similar(mu)
 
     for i in 1:np
-        gen_series!(view(res,i,1:N),τ,λ,sigma=1.0,N=N)
+        gen_series!(view(res,i,:),tau,lambda,sigma=1.0,N=N)
     end
     for j in axes(res,2)
         LinearAlgebra.mul!(temp,L,view(res,:,j))
-        res[:,j] .= temp .+μ
+        res[:,j] .= temp .+mu
     end
     return res;
 end
 
-function real_taui(τ::Float64)
-  if τ==0.
-    return 0.5
-  end
-  a = exp(-1/τ)
-  return 0.5 + a/(1-a)
+gen_cov_series(mu,cov,tau;N =1000) =
+    gen_cov_series(mu,cov,tau,
+                   fill(one(eltype(tau))/sqrt(length(tau)),length(tau)),
+                   N=N)
+@doc raw"""
+     real_taui(tau [,lambda])
+
+It returns the true `\tau_{\rm int}` associate to the autocorrelation function defined by `tau` and `lambda`. If `lambda` is not given, then `lambda = 1/\sqrt{length(tau)}` is assumed.
+"""
+function real_taui(tau, lambda)
+    aux = zero(eltype(tau))
+    s = zero(eltype(lambda))
+    for (t,l) in zip(tau,lambda)
+        ap = t == zero(eltype(tau)) ? zero(eltype(tau)) : exp(-1.0/t)
+        aux +=  l^2 / (1.0 / ap -1)
+        s += l^2
+    end
+    return 0.5 + aux/s
 end
 
-function real_taui(τ::Vector{Float64},λ::Vector{Float64})
-  ap = [t == 0.0 ? 0. : exp(-1.0/t) for t in τ]
-  return 0.5 + sum(λ.^2 ./(1 ./ap .- 1))/sum(λ.^2)
+real_taui(tau) = real_taui(tau,fill(one(eltype(tau)),lenght(tau)))
+
+@doc raw"""
+     to_cov(corr,sigma)
+
+It returns the covariance matrix given the correlation matrix `corr` and the standard deviations `sigma`
+"""
+function to_cov(corr,sigma)
+    cov = similar(corr)
+    for C in CartesianIndices(corr)
+        i,j = Tuple(C)
+        cov[C] = corr[C]*sqrt(sigma[i]*sigma[j])
+    end
+    return cov
+end
+
+@doc raw"""
+     to_corr(cov)
+
+It returns the correlation matrix associated to the covariance matrix `cov`
+"""
+function to_corr(cov)
+    corr = similar(cov)
+    for C in CartesianIndices(cov)
+        i,j = Tuple(C)
+        corr[C] = cov[C]/sqrt(cov[i,i]*cov[j,j])
+    end
+    return corr
 end
 
 
-export rn_gen,rn_uwreal_gen,corr_data_gen,random_walk,gen_series,gen_cov_series,gen_series!,real_taui
+export gen_data,gen_cov_data,random_walk,gen_series!,gen_series,gen_cov_series,real_taui, to_cov, to_corr
 
 end
